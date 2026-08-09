@@ -43,6 +43,7 @@ export default async function EntryPage({
 
   const loadError =
     dayRowsRes.error?.message ??
+    noteRes.error?.message ??
     historyRes.error?.message ??
     dayDealsRes.error?.message ??
     null;

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   addDays,
@@ -113,6 +114,22 @@ export default async function DashboardPage({
         <p role="alert" className="mb-4 rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-xs text-bad">
           Could not load dashboard data: {loadError}
         </p>
+      ) : null}
+
+      {/* First run: the cards below are all legitimately empty, which on its own
+          reads like something is broken. Say what to do instead. */}
+      {!loadError && leads.length === 0 && deals.length === 0 && projects.length === 0 ? (
+        <div className="mb-4 rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
+          <p className="text-sm font-medium text-ink">Nothing logged yet.</p>
+          <p className="mt-1 text-xs text-ink-muted">
+            Start on{" "}
+            <Link href="/entry" className="text-accent-bright underline underline-offset-2">
+              Daily Entry
+            </Link>{" "}
+            — leads, calls and spend by source. Closed deals go in from there too, and every
+            card below fills in from those two records.
+          </p>
+        </div>
       ) : null}
 
       <div className="space-y-6">

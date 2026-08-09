@@ -67,6 +67,24 @@ Deals are attributed to a date range by `close_date`.
 `paused` with no churn date still counts toward MRR. To take revenue out, set a
 churn date.
 
+## Things worth knowing
+
+**The date range applies to every card, including the monthly ones.** That is
+deliberate — one filter row, no per-card filters. The consequence is that a 7-day
+range renders the MRR trend as a single month. Use 90D/QTD/YTD when reading Row D.
+
+**Revenue in the source table** is setup + monthly fees of deals *closed in
+range*, attributed by the deal's source. It is range-scoped so it lines up with
+the spend column beside it, not a lifetime total.
+
+**The bottleneck flag compares the three stage rates directly**, as specified. A
+show rate of 70% and a lead→booked rate of 10% are different kinds of number, so
+the flag lands on lead→booked most of the time. Read it as "lowest rate", not
+"most fixable".
+
+**Deleting vs zeroing.** Blanking every field for a source deletes that row
+rather than storing zeros, matching the "only rows with activity get saved" rule.
+
 ## Conventions
 
 - Currency MYR, shown as `RM 1,234`.

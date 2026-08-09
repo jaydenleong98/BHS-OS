@@ -14,15 +14,18 @@ export function Nav({ email }: { email: string }) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/95 backdrop-blur">
-      <div className="mx-auto flex max-w-[1600px] items-center gap-1 px-4 sm:px-6">
+      {/* Height is fixed at h-12 rather than left to the tallest child, because
+          the dashboard's sticky filter row offsets against it (top-[49px] =
+          48px + the 1px border). */}
+      <div className="mx-auto flex h-12 max-w-[1600px] items-center gap-1 px-4 sm:px-6">
         <Link
           href="/dashboard"
-          className="mr-4 shrink-0 py-3 text-sm font-semibold tracking-tight text-ink"
+          className="mr-2 shrink-0 text-sm font-semibold tracking-tight text-ink sm:mr-4"
         >
           BHS<span className="text-accent-bright"> OS</span>
         </Link>
 
-        <nav className="flex items-center gap-1">
+        <nav className="flex h-full items-center gap-1">
           {LINKS.map((link) => {
             const active = pathname.startsWith(link.href);
             return (
@@ -31,7 +34,9 @@ export function Nav({ email }: { email: string }) {
                 href={link.href}
                 aria-current={active ? "page" : undefined}
                 className={[
-                  "relative px-3 py-3 text-sm transition-colors",
+                  // Tighter on phones: brand + three links + sign out overflow
+                  // a 390px viewport at desktop padding.
+                  "relative flex h-full items-center px-2 text-[13px] transition-colors sm:px-3 sm:text-sm",
                   active ? "text-ink" : "text-ink-muted hover:text-ink",
                 ].join(" ")}
               >
@@ -44,12 +49,12 @@ export function Nav({ email }: { email: string }) {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex shrink-0 items-center gap-3 pl-2">
           <span className="hidden text-xs text-ink-faint sm:inline">{email}</span>
           <form action="/auth/signout" method="post">
             <button
               type="submit"
-              className="rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-muted transition-colors hover:border-line-strong hover:text-ink"
+              className="rounded-md border border-line px-2 py-1.5 text-[11px] whitespace-nowrap text-ink-muted transition-colors hover:border-line-strong hover:text-ink sm:px-2.5 sm:text-xs"
             >
               Sign out
             </button>
