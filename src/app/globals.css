@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+/*
+ * BHS OS theme — dark, deep blue, dense.
+ * This is a working dashboard: high information density, low chrome, no decoration
+ * that doesn't carry data.
+ */
+
+@theme {
+  /* Surfaces, darkest to lightest */
+  --color-bg: #080b12;
+  --color-surface: #0f1420;
+  --color-surface-2: #151c2b;
+  --color-surface-3: #1c2434;
+
+  /* Lines */
+  --color-line: #1e2637;
+  --color-line-strong: #2c3849;
+
+  /* Text */
+  --color-ink: #e7ecf5;
+  --color-ink-muted: #8d99b0;
+  --color-ink-faint: #5b6780;
+
+  /* Deep blue accent */
+  --color-accent: #3b6fe8;
+  --color-accent-bright: #5b8bff;
+  --color-accent-dim: #1e3a75;
+
+  /* Status */
+  --color-good: #35c88a;
+  --color-warn: #e0a33a;
+  --color-bad: #ec5f6c;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers must line up column-to-column, or a dense table is unreadable. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Inputs: dark by default so we don't fight the browser on every field. */
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+/* Strip the spinner from number inputs — the entry grid is keyboard-driven and
+   the arrows just steal horizontal space. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+::selection {
+  background: var(--color-accent-dim);
+  color: var(--color-ink);
+}
+
+/* Scrollbars, so wide tables don't get a bright OS-default bar cutting through. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+  border: 2px solid var(--color-bg);
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Loading skeleton: a sweep rather than a pulse, so several at once don't strobe. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-surface-2);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-surface-3) 80%, transparent),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
