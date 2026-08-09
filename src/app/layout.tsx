@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   description: "Beyond Horizon Solutions — internal operating metrics",
 };
 
+// Everything here is behind auth and reads live data — nothing is prerenderable.
+export const dynamic = "force-dynamic";
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
