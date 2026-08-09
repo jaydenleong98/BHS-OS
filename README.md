@@ -37,9 +37,13 @@ goes stale.
 
 ## Where the definitions live
 
-Every rate, cost and revenue figure is computed in `src/lib/metrics.ts`. Nothing
-else in the app divides two numbers. Change a definition there and it changes
+Every rate, cost and revenue figure is computed in `src/lib/metrics.ts`, where
+`safeDiv` is the only division. Change a definition there and it changes
 everywhere.
+
+Division does appear elsewhere, but never for a metric: a bar's width
+percentage in the funnel, thousands-scaling on a chart axis, rounding to two
+decimals, milliseconds to days. Each is guarded at its call site.
 
 Any metric with a denominator returns `number | null`. `null` means undefined
 for this data (zero denominator) and renders as `—`. A zero denominator is not a

@@ -32,8 +32,10 @@ import {
 export type Ratio = number | null;
 
 /**
- * The only division allowed in this codebase.
+ * The only division used to compute a metric anywhere in this app.
  * Guards zero, NaN and non-finite inputs, so no metric can produce Infinity.
+ * (Layout and display maths — bar widths, axis scaling, rounding — divide by
+ * their own constants elsewhere, guarded at the call site.)
  */
 export function safeDiv(numerator: number, denominator: number): Ratio {
   if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) return null;
