@@ -22,10 +22,16 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Middleware is what actually gates access; this call only decides whether to
+  // paint the nav. If Supabase is unreachable, render the page rather than 500.
+  let user: { email?: string } | null = null;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    user = null;
+  }
 
   return (
     <html lang="en">

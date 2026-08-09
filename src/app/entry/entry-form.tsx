@@ -308,7 +308,9 @@ export function EntryForm({
             {totals.callsTaken}
           </div>
           <div className="tabular px-1 text-right text-sm font-semibold sm:px-3 sm:py-2">
-            {totals.spend > 0 ? formatMYRPrecise(totals.spend) : "—"}
+            {/* A typed zero is a real zero here, so it shows as RM 0.00 rather
+                than an em-dash — the dash is reserved for undefined values. */}
+            {formatMYRPrecise(totals.spend)}
           </div>
         </div>
 
