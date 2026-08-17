@@ -5,8 +5,11 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/entry", label: "Entry" },
+  { href: "/pipeline", label: "Pipeline" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/analysis", label: "Analysis" },
   { href: "/clients", label: "Clients" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Nav({ email }: { email: string }) {
@@ -25,7 +28,10 @@ export function Nav({ email }: { email: string }) {
           BHS<span className="text-accent-bright"> OS</span>
         </Link>
 
-        <nav className="flex h-full items-center gap-1">
+        {/* Six links overflow a phone. Scroll rather than wrap: the bar's height
+            is fixed at h-12 because the dashboard's sticky filter row offsets
+            against it. */}
+        <nav className="flex h-full min-w-0 items-center gap-1 overflow-x-auto">
           {LINKS.map((link) => {
             const active = pathname.startsWith(link.href);
             return (

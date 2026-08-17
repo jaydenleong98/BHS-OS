@@ -4,43 +4,51 @@ import {
   addDays,
   previousRange,
   resolveRange,
+  startOfWeek,
   today,
   RANGE_PRESETS,
   type RangePreset,
 } from "@/lib/dates";
+import { loadSettings } from "@/lib/settings";
 import {
-  buildDailyVolume,
+  buildCapacity,
+  buildContentSummary,
   buildFulfilmentSummary,
   buildFunnel,
+  buildGoalGap,
   buildMonthlyCompletions,
   buildMonthlyRevenue,
+  buildReferralSummary,
   buildRevenueSummary,
-  buildSourcePerformance,
   daysOverdue,
-  hasActivity,
-  totalSourceRow,
 } from "@/lib/metrics";
 import {
-  normaliseDailyLead,
-  normaliseDeal,
+  normaliseClient,
+  normaliseOnboardingProgress,
   normaliseProject,
-  type DailyLead,
-  type Deal,
+  normaliseProspect,
+  normaliseReferralAsk,
+  normaliseWeeklyContent,
+  type Client,
+  type OnboardingProgress,
   type Project,
+  type Prospect,
+  type ReferralAsk,
+  type WeeklyContent,
 } from "@/lib/types";
 import { formatDays, formatMYR, formatNumber } from "@/lib/format";
 import { RowHeading, Stat } from "@/components/ui";
 import { RangeSelector } from "./range-selector";
+import { GoalHero } from "./goal-hero";
 import { FunnelRow } from "./funnel-row";
-import { VolumeChart } from "./volume-chart";
-import { SourceTable } from "./source-table";
+import { ContentCard } from "./content-card";
+import { ReferralsCard } from "./referrals-card";
+import { CapacityCard } from "./capacity-card";
 import { CashCollectedChart, MrrMovementChart, MrrTrendChart } from "./revenue-charts";
 import { CompletionsChart } from "./fulfilment";
 import { OverduePanel, type OverdueEntry } from "./overdue-panel";
 
 export const dynamic = "force-dynamic";
-
-const ROLLING_WINDOW = 7;
 
 export default async function DashboardPage({
   searchParams,
@@ -56,51 +64,78 @@ export default async function DashboardPage({
   const range = resolveRange(preset, { from: params.from, to: params.to }, todayISO);
   const previous = previousRange(range);
 
-  // Fetch far enough back to cover the comparison window and the rolling
-  // average's lead-in, so the 7-day line is defined at the first visible point.
-  const fetchFrom =
-    previous.from < addDays(range.from, -(ROLLING_WINDOW - 1))
-      ? previous.from
-      : addDays(range.from, -(ROLLING_WINDOW - 1));
-
   const supabase = await createClient();
 
-  // Deals and projects are fetched whole, not filtered by range: MRR at any past
-  // month depends on every deal ever closed, not just the ones inside the window.
-  const [leadsRes, dealsRes, projectsRes] = await Promise.all([
-    supabase
-      .from("daily_leads")
-      .select("*")
-      .gte("entry_date", fetchFrom)
-      .lte("entry_date", range.to),
+  // Prospects, clients and projects are fetched whole rather than range-filtered:
+  // MRR at any past month depends on every client ever won, and the sales-cycle
+  // average depends on every prospect ever closed.
+  const [
+    prospectsRes,
+    clientsRes,
+    projectsRes,
+    onboardingRes,
+    contentRes,
+    asksRes,
+    settings,
+  ] = await Promise.all([
+    supabase.from("prospects").select("*"),
     supabase.from("deals").select("*"),
     supabase.from("projects").select("*"),
+    supabase.from("onboarding_progress").select("*"),
+    supabase
+      .from("weekly_content")
+      .select("*")
+      .gte("week_start", addDays(startOfWeek(todayISO), -7 * 7)),
+    supabase.from("referral_asks").select("*"),
+    loadSettings(supabase),
   ]);
 
   const loadError =
-    leadsRes.error?.message ?? dealsRes.error?.message ?? projectsRes.error?.message ?? null;
+    prospectsRes.error?.message ??
+    clientsRes.error?.message ??
+    projectsRes.error?.message ??
+    onboardingRes.error?.message ??
+    contentRes.error?.message ??
+    asksRes.error?.message ??
+    null;
 
-  const leads: DailyLead[] = (leadsRes.data ?? []).map(normaliseDailyLead);
-  const deals: Deal[] = (dealsRes.data ?? []).map(normaliseDeal);
-  const projects: Project[] = (projectsRes.data ?? []).map(normaliseProject);
+  const map = <T,>(res: { data: unknown[] | null }, fn: (row: Record<string, unknown>) => T): T[] =>
+    (res.data ?? []).map((row) => fn(row as Record<string, unknown>));
 
-  const funnel = buildFunnel(leads, deals, range, previous);
-  const volume = buildDailyVolume(leads, range, ROLLING_WINDOW);
-  const sourceRows = buildSourcePerformance(leads, deals, range).filter(hasActivity);
-  const sourceTotals = totalSourceRow(sourceRows);
-  const monthlyRevenue = buildMonthlyRevenue(deals, range);
-  const revenue = buildRevenueSummary(deals, range, todayISO);
+  const prospects: Prospect[] = map(prospectsRes, normaliseProspect);
+  const clients: Client[] = map(clientsRes, normaliseClient);
+  const projects: Project[] = map(projectsRes, normaliseProject);
+  const onboarding: OnboardingProgress[] = map(onboardingRes, normaliseOnboardingProgress);
+  const content: WeeklyContent[] = map(contentRes, normaliseWeeklyContent);
+  const asks: ReferralAsk[] = map(asksRes, normaliseReferralAsk);
+
+  const goal = buildGoalGap(clients, prospects, settings, todayISO);
+  const funnel = buildFunnel(prospects, range, previous);
+  const contentSummary = buildContentSummary(content, settings, 8, todayISO);
+  const referrals = buildReferralSummary(clients, prospects, asks, todayISO);
+  const capacity = buildCapacity(projects, clients, onboarding, settings, range);
+  const revenue = buildRevenueSummary(clients, range, todayISO);
+  const monthlyRevenue = buildMonthlyRevenue(clients, range);
   const completions = buildMonthlyCompletions(projects, range);
-  const fulfilment = buildFulfilmentSummary(projects, deals, range, todayISO);
+  const fulfilment = buildFulfilmentSummary(projects, clients, range, todayISO);
 
-  const clientNameByDeal = new Map(deals.map((deal) => [deal.id, deal.client_name]));
+  const clientNameById = new Map(clients.map((client) => [client.id, client.client_name]));
   const overdue: OverdueEntry[] = fulfilment.overdue.map((project) => ({
     project,
-    clientName: project.deal_id
-      ? (clientNameByDeal.get(project.deal_id) ?? "Unlinked")
-      : "Unlinked",
+    clientName: project.deal_id ? (clientNameById.get(project.deal_id) ?? "Unlinked") : "Unlinked",
     lateBy: daysOverdue(project, todayISO) ?? 0,
   }));
+
+  const askOptions = clients
+    .filter((client) => client.status === "active")
+    .map((client) => ({
+      id: client.id,
+      name: client.client_name,
+      lastAsked: client.referral_asked_on,
+    }));
+
+  const empty =
+    !loadError && prospects.length === 0 && clients.length === 0 && projects.length === 0;
 
   return (
     <div className="pb-6">
@@ -118,44 +153,82 @@ export default async function DashboardPage({
 
       {/* First run: the cards below are all legitimately empty, which on its own
           reads like something is broken. Say what to do instead. */}
-      {!loadError && leads.length === 0 && deals.length === 0 && projects.length === 0 ? (
+      {empty ? (
         <div className="mb-4 rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
           <p className="text-sm font-medium text-ink">Nothing logged yet.</p>
           <p className="mt-1 text-xs text-ink-muted">
-            Start on{" "}
+            Add your first prospect on{" "}
+            <Link href="/pipeline" className="text-accent-bright underline underline-offset-2">
+              Pipeline
+            </Link>
+            , log today on{" "}
             <Link href="/entry" className="text-accent-bright underline underline-offset-2">
-              Daily Entry
-            </Link>{" "}
-            — leads, calls and spend by source. Closed deals go in from there too, and every
-            card below fills in from those two records.
+              Entry
+            </Link>
+            , and set your target MRR in{" "}
+            <Link href="/settings" className="text-accent-bright underline underline-offset-2">
+              Settings
+            </Link>
+            . Every card below fills in from those.
           </p>
         </div>
       ) : null}
 
       <div className="space-y-6">
-        {/* Row A — Funnel */}
+        {/* The goal. Everything below is context for this one number. */}
+        <GoalHero goal={goal} />
+
         <section>
-          <RowHeading hint="counts, stage conversion, and change vs the previous equivalent period">
-            Funnel
-          </RowHeading>
+          <RowHeading hint="counts of prospects reaching each stage in range">Funnel</RowHeading>
           <FunnelRow funnel={funnel} />
         </section>
 
-        {/* Row B — Volume */}
         <section>
-          <RowHeading hint={`daily leads by source with a ${ROLLING_WINDOW}-day rolling average`}>
-            Volume
+          <RowHeading hint="content output and the referral engine">Inputs</RowHeading>
+          <div className="grid gap-3 xl:grid-cols-2">
+            <ContentCard content={contentSummary} />
+            <ReferralsCard referrals={referrals} askOptions={askOptions} />
+          </div>
+        </section>
+
+        <section>
+          <RowHeading hint="delivery capacity is the one number where more is worse">
+            Fulfilment
           </RowHeading>
-          <VolumeChart points={volume} />
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            <CapacityCard capacity={capacity} />
+            <OverduePanel
+              load={fulfilment.loadPerClient}
+              activeProjects={fulfilment.activeProjectCount}
+              activeClients={fulfilment.activeClients}
+              overdue={overdue}
+            />
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
+            <Stat
+              label="Completed in range"
+              value={formatNumber(fulfilment.completedInRange)}
+              hint="by completion date"
+            />
+            <Stat
+              label="Clients under servicing"
+              value={formatNumber(fulfilment.activeClients)}
+              hint="status = active"
+            />
+            <Stat
+              label="Avg delivery time"
+              value={formatDays(fulfilment.averageDeliveryDays)}
+              hint="project start to completion, in range"
+            />
+          </div>
+
+          <div className="mt-3">
+            <CompletionsChart points={completions} />
+          </div>
         </section>
 
-        {/* Row C — Source performance */}
-        <section>
-          <RowHeading hint="where to spend more effort">Sources</RowHeading>
-          <SourceTable rows={sourceRows} totals={sourceTotals} />
-        </section>
-
-        {/* Row D — Revenue */}
         <section>
           <RowHeading hint="MRR is measured at each month end; state figures are as at today">
             Revenue
@@ -176,12 +249,12 @@ export default async function DashboardPage({
             <Stat
               label="Avg setup fee"
               value={formatMYR(revenue.averageSetupFee)}
-              hint={`${revenue.dealsClosedInRange} closed in range`}
+              hint={`${revenue.clientsWonInRange} won in range`}
             />
             <Stat
               label="Avg monthly fee"
               value={formatMYR(revenue.averageMonthlyFee)}
-              hint="deals closed in range"
+              hint="clients won in range"
             />
             <Stat label="ARPA" value={formatMYR(revenue.arpa)} hint="MRR ÷ active clients" />
           </div>
@@ -192,46 +265,6 @@ export default async function DashboardPage({
           </div>
           <div className="mt-3">
             <CashCollectedChart points={monthlyRevenue} />
-          </div>
-        </section>
-
-        {/* Row E — Fulfilment */}
-        <section>
-          <RowHeading hint="derived from the client register, never typed in">
-            Fulfilment
-          </RowHeading>
-
-          <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat
-              label="Active projects"
-              value={formatNumber(fulfilment.activeProjectCount)}
-              hint="in progress or blocked"
-            />
-            <Stat
-              label="Completed in range"
-              value={formatNumber(fulfilment.completedInRange)}
-              hint="by completion date"
-            />
-            <Stat
-              label="Clients under servicing"
-              value={formatNumber(fulfilment.clientsUnderServicing)}
-              hint="deals with status = active"
-            />
-            <Stat
-              label="Avg delivery time"
-              value={formatDays(fulfilment.averageDeliveryDays)}
-              hint="start to completion, in range"
-            />
-          </div>
-
-          <div className="grid gap-3 xl:grid-cols-2">
-            <CompletionsChart points={completions} />
-            <OverduePanel
-              load={fulfilment.loadPerClient}
-              activeProjects={fulfilment.activeProjectCount}
-              activeClients={fulfilment.clientsUnderServicing}
-              overdue={overdue}
-            />
           </div>
         </section>
       </div>

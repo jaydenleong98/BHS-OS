@@ -14,7 +14,7 @@ import { formatMonthKey, formatMonthKeyShort } from "@/lib/dates";
 import { formatNumber } from "@/lib/format";
 import { axisProps, CHROME, gridProps } from "@/lib/chart-theme";
 import { EmptyState } from "@/components/ui";
-import { ChartFrame, DataTable, TooltipCard } from "./chart-frame";
+import { ChartFrame, DataTable, TooltipCard } from "@/components/chart-frame";
 
 /** Projects delivered per month. One series, so no legend. */
 export function CompletionsChart({ points }: { points: MonthlyCompletionPoint[] }) {

@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import type { SourceRow } from "@/lib/metrics";
 import { formatMYR, formatMYRPrecise, formatNumber, formatPct } from "@/lib/format";
 import { SOURCE_LABELS } from "@/lib/types";
-import { SOURCE_COLORS } from "@/lib/chart-theme";
 import { Card, cx, EmptyState } from "@/components/ui";
 
 type ColumnKey = keyof Omit<SourceRow, "source">;
@@ -21,66 +20,74 @@ type Column = {
 };
 
 const COLUMNS: Column[] = [
-  { key: "leads", label: "Leads", render: (r) => formatNumber(r.leads), group: "count" },
-  { key: "callsBooked", label: "Booked", render: (r) => formatNumber(r.callsBooked), group: "count" },
-  { key: "callsTaken", label: "Taken", render: (r) => formatNumber(r.callsTaken), group: "count" },
-  { key: "dealsClosed", label: "Closed", render: (r) => formatNumber(r.dealsClosed), group: "count" },
+  { key: "prospects", label: "Prospects", render: (r) => formatNumber(r.prospects), group: "count" },
   {
-    key: "leadToBooked",
-    label: "Lead→Booked",
-    render: (r) => formatPct(r.leadToBooked),
+    key: "conversations",
+    label: "Convos",
+    render: (r) => formatNumber(r.conversations),
+    group: "count",
+  },
+  { key: "booked", label: "Booked", render: (r) => formatNumber(r.booked), group: "count" },
+  { key: "taken", label: "Taken", render: (r) => formatNumber(r.taken), group: "count" },
+  { key: "closed", label: "Closed", render: (r) => formatNumber(r.closed), group: "count" },
+  {
+    key: "conversationRate",
+    label: "→ Convo",
+    render: (r) => formatPct(r.conversationRate),
     group: "rate",
-    title: "calls_booked ÷ leads_generated",
+    title: "conversations ÷ prospects added",
   },
   {
-    key: "bookedToTaken",
-    label: "Booked→Taken",
-    render: (r) => formatPct(r.bookedToTaken),
+    key: "showRate",
+    label: "Show rate",
+    render: (r) => formatPct(r.showRate),
     group: "rate",
-    title: "calls_taken ÷ calls_booked",
+    title: "calls taken ÷ calls booked",
   },
   {
-    key: "takenToClosed",
-    label: "Taken→Closed",
-    render: (r) => formatPct(r.takenToClosed),
+    key: "closeRate",
+    label: "Close rate",
+    render: (r) => formatPct(r.closeRate),
     group: "rate",
-    title: "deals closed ÷ calls_taken",
+    title: "won ÷ calls taken",
   },
   { key: "spend", label: "Spend", render: (r) => formatMYR(r.spend), group: "money" },
   {
-    key: "costPerLead",
-    label: "Cost/lead",
-    render: (r) => formatMYRPrecise(r.costPerLead),
+    key: "costPerProspect",
+    label: "Cost/prospect",
+    render: (r) => formatMYRPrecise(r.costPerProspect),
     group: "money",
     lowerIsBetter: true,
-    title: "spend ÷ leads_generated",
+    title: "spend ÷ prospects added",
   },
   {
-    key: "costPerDeal",
-    label: "Cost/deal",
-    render: (r) => formatMYR(r.costPerDeal),
+    key: "costPerAcquisition",
+    label: "Cost/acquisition",
+    render: (r) => formatMYR(r.costPerAcquisition),
     group: "money",
     lowerIsBetter: true,
-    title: "spend ÷ deals closed",
+    title: "spend ÷ clients won",
   },
   {
     key: "revenue",
     label: "Revenue",
     render: (r) => formatMYR(r.revenue),
     group: "money",
-    title: "Setup fees + monthly fees of deals closed in range, by source",
+    title: "Setup + monthly fees of clients won in range, by source",
   },
 ];
 
 /**
- * Row C — where the "spend more effort here" decision gets made.
+ * Where the "spend more effort here" decision gets made — on the Analysis tab,
+ * not the dashboard, because at this volume every rate in it needs a long window
+ * and a sceptical reader.
  *
  * Sortable on every column. Best and worst in each rate/cost column are tinted
  * so the read is immediate, but the tint is a background wash — the value itself
  * stays in text colour and is never encoded by colour alone.
  */
 export function SourceTable({ rows, totals }: { rows: SourceRow[]; totals: SourceRow }) {
-  const [sortKey, setSortKey] = useState<ColumnKey>("leads");
+  const [sortKey, setSortKey] = useState<ColumnKey>("prospects");
   const [descending, setDescending] = useState(true);
 
   const sorted = useMemo(() => {
@@ -132,7 +139,7 @@ export function SourceTable({ rows, totals }: { rows: SourceRow[]; totals: Sourc
         <EmptyState
           compact
           title="No source activity in this range."
-          hint="Sources appear here once they have leads, spend, or a closed deal against them."
+          hint="Sources appear here once they have a prospect, spend, or a won client against them."
         />
       </Card>
     );
@@ -141,11 +148,11 @@ export function SourceTable({ rows, totals }: { rows: SourceRow[]; totals: Sourc
   return (
     <Card
       title="Source performance"
-      subtitle="Sorted by any column. Revenue is setup + monthly fees from deals closed in range."
+      subtitle="Sorted by any column. Counts come from prospect stage dates; spend is whichever months the range touches."
       bodyClassName="p-0"
     >
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1000px] border-collapse text-xs">
+        <table className="w-full min-w-[1050px] border-collapse text-xs">
           <thead>
             <tr>
               <th
@@ -189,16 +196,9 @@ export function SourceTable({ rows, totals }: { rows: SourceRow[]; totals: Sourc
               <tr key={row.source} className="group hover:bg-surface-2/40">
                 <th
                   scope="row"
-                  className="sticky left-0 z-10 border-b border-line bg-surface px-3 py-1.5 text-left font-normal group-hover:bg-surface-2"
+                  className="sticky left-0 z-10 border-b border-line bg-surface px-3 py-1.5 text-left font-normal text-ink group-hover:bg-surface-2"
                 >
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
-                      style={{ background: SOURCE_COLORS[row.source] }}
-                    />
-                    <span className="text-ink">{SOURCE_LABELS[row.source]}</span>
-                  </span>
+                  {SOURCE_LABELS[row.source]}
                 </th>
 
                 {COLUMNS.map((column) => {
@@ -251,8 +251,9 @@ export function SourceTable({ rows, totals }: { rows: SourceRow[]; totals: Sourc
       </div>
 
       <p className="border-t border-line px-3 py-2 text-[11px] text-ink-faint">
-        Green marks the best value in a column, red the worst. Cost columns invert — lower wins.
-        A dash means the denominator was zero, not that the value is zero.
+        Green marks the best value in a column, red the worst. Cost columns invert — lower wins. A
+        dash means the denominator was zero, not that the value is zero. At six to eight closes a
+        year, treat every rate in this table as a hint, not a finding.
       </p>
     </Card>
   );

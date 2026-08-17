@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { PREVIEW_MODE } from "@/lib/preview/flag";
 
 const PUBLIC_PATHS = ["/login", "/auth"];
 
@@ -8,6 +9,18 @@ const PUBLIC_PATHS = ["/login", "/auth"];
  * Two users, no roles — either you're signed in or you're at /login.
  */
 export async function middleware(request: NextRequest) {
+  // Preview mode has no Supabase project to authenticate against. Everyone is
+  // signed in as the preview user; /login has nothing to do.
+  if (PREVIEW_MODE) {
+    if (request.nextUrl.pathname === "/login") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/entry";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

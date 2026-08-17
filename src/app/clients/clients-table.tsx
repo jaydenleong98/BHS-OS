@@ -3,28 +3,40 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { diffDays, formatDMY } from "@/lib/dates";
-import { formatMYR } from "@/lib/format";
+import { formatMYR, formatPct } from "@/lib/format";
+import { onboardingCompletion } from "@/lib/metrics";
 import {
-  DEAL_STATUSES,
+  CLIENT_STATUSES,
+  ONBOARDING_STEPS,
   PROJECT_STATUSES,
   PROJECT_STATUS_LABELS,
   SOURCE_LABELS,
-  TIER_LABELS,
-  type Deal,
-  type DealStatus,
+  STALE_CONTACT_DAYS,
+  type Client,
+  type ClientStatus,
+  type OnboardingProgress,
   type Project,
   type ProjectStatus,
 } from "@/lib/types";
 import { Badge, cx, EmptyState } from "@/components/ui";
 import {
   addProject,
-  setDealStatus,
+  markReferralAsked,
+  setBillingConfirmed,
+  setClientStatus,
+  setDeliveryPain,
+  setGoLiveDate,
+  setLastContact,
+  setOnboardingStep,
   setProjectStatus,
   setProjectTargetDate,
-  updateDealFees,
+  updateClientFees,
 } from "./actions";
 
-type Filter = "all" | DealStatus;
+type Result = { ok: true } | { ok: false; error: string };
+type Run = (action: () => Promise<Result>) => void;
+
+type Filter = "all" | ClientStatus;
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "All" },
@@ -33,13 +45,17 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "churned", label: "Churned" },
 ];
 
+const GRID = "grid-cols-[1.6fr_0.7fr_0.8fr_0.8fr_0.8fr_0.9fr_1.3fr_0.7fr]";
+
 export function ClientsTable({
-  deals,
+  clients,
   projects,
+  onboarding,
   todayISO,
 }: {
-  deals: Deal[];
+  clients: Client[];
   projects: Project[];
+  onboarding: OnboardingProgress[];
   todayISO: string;
 }) {
   const router = useRouter();
@@ -49,7 +65,7 @@ export function ClientsTable({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
-  const projectsByDeal = useMemo(() => {
+  const projectsByClient = useMemo(() => {
     const map = new Map<string, Project[]>();
     for (const project of projects) {
       if (!project.deal_id) continue;
@@ -62,28 +78,28 @@ export function ClientsTable({
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return deals.filter((deal) => {
-      if (filter !== "all" && deal.status !== filter) return false;
-      if (needle && !deal.client_name.toLowerCase().includes(needle)) return false;
+    return clients.filter((client) => {
+      if (filter !== "all" && client.status !== filter) return false;
+      if (needle && !client.client_name.toLowerCase().includes(needle)) return false;
       return true;
     });
-  }, [deals, filter, query]);
+  }, [clients, filter, query]);
 
   const counts = useMemo(() => {
-    const base: Record<Filter, number> = { all: deals.length, active: 0, paused: 0, churned: 0 };
-    for (const deal of deals) base[deal.status] += 1;
+    const base: Record<Filter, number> = { all: clients.length, active: 0, paused: 0, churned: 0 };
+    for (const client of clients) base[client.status] += 1;
     return base;
-  }, [deals]);
+  }, [clients]);
 
   /** Every mutation goes through here so failures surface instead of silently no-op'ing. */
-  function run(action: () => Promise<{ ok: true } | { ok: false; error: string }>) {
+  const run: Run = (action) => {
     setError(null);
     startTransition(async () => {
       const result = await action();
       if (!result.ok) setError(result.error);
       else router.refresh();
     });
-  }
+  };
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -105,9 +121,7 @@ export function ClientsTable({
               onClick={() => setFilter(f.key)}
               className={cx(
                 "rounded px-2.5 py-1.5 text-xs transition-colors",
-                filter === f.key
-                  ? "bg-accent/15 text-accent-bright"
-                  : "text-ink-muted hover:text-ink"
+                filter === f.key ? "bg-accent/15 text-accent-bright" : "text-ink-muted hover:text-ink"
               )}
             >
               {f.label} <span className="tabular text-ink-faint">{counts[f.key]}</span>
@@ -124,7 +138,7 @@ export function ClientsTable({
         />
 
         <span className="ml-auto text-xs text-ink-faint">
-          {visible.length} of {deals.length} shown
+          {visible.length} of {clients.length} shown
         </span>
       </div>
 
@@ -142,23 +156,28 @@ export function ClientsTable({
         />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-          <div className="min-w-[900px]">
-            <div className="grid grid-cols-[1.6fr_0.7fr_0.8fr_0.8fr_0.8fr_0.8fr_0.9fr_0.7fr] gap-2 border-b border-line px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+          <div className="min-w-[1000px]">
+            <div
+              className={cx(
+                "grid gap-2 border-b border-line px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint",
+                GRID
+              )}
+            >
               <div>Client</div>
               <div>Source</div>
-              <div>Tier</div>
-              <div>Closed</div>
+              <div>Won</div>
               <div className="text-right">Setup</div>
               <div className="text-right">Monthly</div>
               <div>Status</div>
+              <div>Flags</div>
               <div className="text-right">Projects</div>
             </div>
 
             <div className="divide-y divide-line">
-              {visible.map((deal) => {
-                const dealProjects = projectsByDeal.get(deal.id) ?? [];
-                const open = expanded.has(deal.id);
-                const overdueCount = dealProjects.filter(
+              {visible.map((client) => {
+                const clientProjects = projectsByClient.get(client.id) ?? [];
+                const open = expanded.has(client.id);
+                const overdueCount = clientProjects.filter(
                   (p) =>
                     p.status !== "completed" &&
                     p.completed_date === null &&
@@ -166,56 +185,62 @@ export function ClientsTable({
                     p.target_date < todayISO
                 ).length;
 
+                const daysSinceContact =
+                  client.last_contact_on === null
+                    ? null
+                    : diffDays(client.last_contact_on, todayISO);
+                const stale =
+                  client.status !== "churned" &&
+                  (daysSinceContact === null || daysSinceContact > STALE_CONTACT_DAYS);
+                const completion = onboardingCompletion(onboarding, client.id);
+
                 return (
-                  <div key={deal.id}>
-                    <div className="grid grid-cols-[1.6fr_0.7fr_0.8fr_0.8fr_0.8fr_0.8fr_0.9fr_0.7fr] items-center gap-2 px-3 py-2 hover:bg-surface-2/50">
+                  <div key={client.id}>
+                    <div className={cx("grid items-center gap-2 px-3 py-2 hover:bg-surface-2/50", GRID)}>
                       <div className="flex min-w-0 items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => toggle(deal.id)}
+                          onClick={() => toggle(client.id)}
                           aria-expanded={open}
-                          aria-label={open ? "Collapse projects" : "Expand projects"}
+                          aria-label={open ? "Collapse client" : "Expand client"}
                           className="shrink-0 rounded px-1 text-xs text-ink-faint transition-colors hover:text-ink"
                         >
                           {open ? "▾" : "▸"}
                         </button>
-                        <span className="truncate text-sm text-ink" title={deal.client_name}>
-                          {deal.client_name}
+                        <span className="truncate text-sm text-ink" title={client.client_name}>
+                          {client.client_name}
                         </span>
-                        {deal.status === "churned" && deal.churn_date ? (
+                        {client.status === "churned" && client.churn_date ? (
                           <span className="tabular shrink-0 text-[11px] text-bad">
-                            ↓ {formatDMY(deal.churn_date)}
+                            ↓ {formatDMY(client.churn_date)}
                           </span>
                         ) : null}
                       </div>
 
-                      <div className="text-xs text-ink-muted">{SOURCE_LABELS[deal.source]}</div>
-                      <div className="text-xs text-ink-muted">
-                        {deal.tier ? TIER_LABELS[deal.tier] : "—"}
-                      </div>
+                      <div className="text-xs text-ink-muted">{SOURCE_LABELS[client.source]}</div>
                       <div className="tabular text-xs text-ink-muted">
-                        {formatDMY(deal.close_date)}
+                        {formatDMY(client.close_date)}
                       </div>
 
                       <FeeCell
-                        value={deal.setup_fee_myr}
+                        value={client.setup_fee_myr}
                         onCommit={(next) =>
                           run(() =>
-                            updateDealFees({
-                              id: deal.id,
+                            updateClientFees({
+                              id: client.id,
                               setup_fee_myr: next,
-                              monthly_fee_myr: deal.monthly_fee_myr,
+                              monthly_fee_myr: client.monthly_fee_myr,
                             })
                           )
                         }
                       />
                       <FeeCell
-                        value={deal.monthly_fee_myr}
+                        value={client.monthly_fee_myr}
                         onCommit={(next) =>
                           run(() =>
-                            updateDealFees({
-                              id: deal.id,
-                              setup_fee_myr: deal.setup_fee_myr,
+                            updateClientFees({
+                              id: client.id,
+                              setup_fee_myr: client.setup_fee_myr,
                               monthly_fee_myr: next,
                             })
                           )
@@ -224,24 +249,24 @@ export function ClientsTable({
 
                       <div>
                         <select
-                          value={deal.status}
+                          value={client.status}
                           onChange={(e) =>
                             run(() =>
-                              setDealStatus({
-                                id: deal.id,
-                                status: e.target.value as DealStatus,
+                              setClientStatus({
+                                id: client.id,
+                                status: e.target.value as ClientStatus,
                               })
                             )
                           }
-                          aria-label={`Status for ${deal.client_name}`}
+                          aria-label={`Status for ${client.client_name}`}
                           className={cx(
                             "w-full rounded border bg-surface-2 px-1.5 py-1 text-xs outline-none transition-colors focus:border-accent",
-                            deal.status === "active" && "border-good/30 text-good",
-                            deal.status === "paused" && "border-warn/30 text-warn",
-                            deal.status === "churned" && "border-bad/30 text-bad"
+                            client.status === "active" && "border-good/30 text-good",
+                            client.status === "paused" && "border-warn/30 text-warn",
+                            client.status === "churned" && "border-bad/30 text-bad"
                           )}
                         >
-                          {DEAL_STATUSES.map((s) => (
+                          {CLIENT_STATUSES.map((s) => (
                             <option key={s} value={s} className="bg-surface text-ink">
                               {s}
                             </option>
@@ -249,22 +274,40 @@ export function ClientsTable({
                         </select>
                       </div>
 
+                      <div className="flex flex-wrap items-center gap-1">
+                        {stale ? (
+                          <Badge tone="warn">
+                            ⚠ {daysSinceContact === null ? "never contacted" : `${daysSinceContact}d quiet`}
+                          </Badge>
+                        ) : null}
+                        {client.status !== "churned" && !client.billing_terms_confirmed ? (
+                          <Badge tone="bad">⚠ billing unconfirmed</Badge>
+                        ) : null}
+                        {client.delivery_pain !== null && client.delivery_pain >= 4 ? (
+                          <Badge tone="bad">pain {client.delivery_pain}</Badge>
+                        ) : null}
+                        {completion < 1 && client.status === "active" ? (
+                          <Badge>{formatPct(completion, 0)} onboarded</Badge>
+                        ) : null}
+                      </div>
+
                       <div className="flex items-center justify-end gap-1.5">
                         {overdueCount > 0 ? <Badge tone="bad">{overdueCount} late</Badge> : null}
                         <button
                           type="button"
-                          onClick={() => toggle(deal.id)}
+                          onClick={() => toggle(client.id)}
                           className="tabular rounded border border-line px-1.5 py-0.5 text-xs text-ink-muted transition-colors hover:border-line-strong hover:text-ink"
                         >
-                          {dealProjects.length}
+                          {clientProjects.length}
                         </button>
                       </div>
                     </div>
 
                     {open ? (
-                      <ProjectPanel
-                        deal={deal}
-                        projects={dealProjects}
+                      <ClientPanel
+                        client={client}
+                        projects={clientProjects}
+                        onboarding={onboarding}
                         todayISO={todayISO}
                         run={run}
                       />
@@ -278,8 +321,8 @@ export function ClientsTable({
       )}
 
       <p className="text-xs text-ink-faint">
-        Setting a client to <span className="text-bad">churned</span> stamps today as the churn
-        date and removes them from MRR. Marking a project{" "}
+        Setting a client to <span className="text-bad">churned</span> stamps today as the churn date
+        and removes them from MRR. Marking a project{" "}
         <span className="text-good">completed</span> stamps today as the completion date and feeds
         average delivery time.
       </p>
@@ -288,13 +331,7 @@ export function ClientsTable({
 }
 
 /** Click-to-edit money cell. Commits on blur or Enter, reverts on Escape. */
-function FeeCell({
-  value,
-  onCommit,
-}: {
-  value: number;
-  onCommit: (next: number) => void;
-}) {
+function FeeCell({ value, onCommit }: { value: number; onCommit: (next: number) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -336,16 +373,234 @@ function FeeCell({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Expanded panel
+// ---------------------------------------------------------------------------
+
+function ClientPanel({
+  client,
+  projects,
+  onboarding,
+  todayISO,
+  run,
+}: {
+  client: Client;
+  projects: Project[];
+  onboarding: OnboardingProgress[];
+  todayISO: string;
+  run: Run;
+}) {
+  const done = new Set(
+    onboarding.filter((p) => p.client_id === client.id).map((p) => p.step_key)
+  );
+  const completion = done.size / ONBOARDING_STEPS.length;
+
+  return (
+    <div className="border-t border-line bg-surface-2/40 px-3 py-3 pl-9">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Relationship client={client} todayISO={todayISO} run={run} />
+
+        <section>
+          <h4 className="mb-2 flex items-baseline gap-2 text-xs font-medium text-ink-muted">
+            Onboarding
+            <span className="tabular text-[11px] text-ink-faint">
+              {done.size}/{ONBOARDING_STEPS.length} · {formatPct(completion, 0)}
+            </span>
+          </h4>
+
+          <ul className="space-y-1">
+            {ONBOARDING_STEPS.map((step) => {
+              const checked = done.has(step.key);
+              return (
+                <li key={step.key}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded border border-line bg-surface px-2 py-1.5 text-xs transition-colors hover:border-line-strong">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) =>
+                        run(() =>
+                          setOnboardingStep({
+                            client_id: client.id,
+                            step_key: step.key,
+                            done: e.target.checked,
+                          })
+                        )
+                      }
+                      className="accent-[color:var(--color-accent)]"
+                    />
+                    <span className={checked ? "text-ink-muted line-through" : "text-ink"}>
+                      {step.label}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      </div>
+
+      <ProjectPanel client={client} projects={projects} todayISO={todayISO} run={run} />
+    </div>
+  );
+}
+
+function Relationship({
+  client,
+  todayISO,
+  run,
+}: {
+  client: Client;
+  todayISO: string;
+  run: Run;
+}) {
+  const daysSinceContact =
+    client.last_contact_on === null ? null : diffDays(client.last_contact_on, todayISO);
+  const stale = daysSinceContact === null || daysSinceContact > STALE_CONTACT_DAYS;
+
+  const fieldClass =
+    "tabular w-full rounded border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent";
+
+  return (
+    <section className="space-y-3">
+      <h4 className="text-xs font-medium text-ink-muted">Relationship</h4>
+
+      <div>
+        <div className="mb-1 flex items-baseline gap-2 text-[11px] text-ink-faint">
+          Delivery pain
+          {client.delivery_pain_updated_on ? (
+            <span className="tabular">set {formatDMY(client.delivery_pain_updated_on)}</span>
+          ) : (
+            <span>never rated</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {[1, 2, 3, 4, 5].map((level) => {
+            const active = client.delivery_pain === level;
+            return (
+              <button
+                key={level}
+                type="button"
+                onClick={() =>
+                  run(() => setDeliveryPain({ id: client.id, pain: active ? null : level }))
+                }
+                aria-pressed={active}
+                title={`${level} — ${level <= 2 ? "easy" : level === 3 ? "normal" : "heavy"}`}
+                className={cx(
+                  "tabular h-7 w-7 rounded border text-xs transition-colors",
+                  active
+                    ? level >= 4
+                      ? "border-bad/50 bg-bad/15 text-bad"
+                      : "border-accent/50 bg-accent/15 text-accent-bright"
+                    : "border-line bg-surface text-ink-faint hover:border-line-strong hover:text-ink"
+                )}
+              >
+                {level}
+              </button>
+            );
+          })}
+          <span className="ml-1 text-[11px] text-ink-faint">1 easy · 5 heavy</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-[11px] text-ink-faint">
+          <span className={cx(stale && "text-warn")}>
+            Last contact
+            {daysSinceContact !== null ? ` · ${daysSinceContact}d` : " · never"}
+          </span>
+          <div className="mt-0.5 flex items-center gap-1">
+            <input
+              type="date"
+              value={client.last_contact_on ?? ""}
+              max={todayISO}
+              onChange={(e) =>
+                run(() => setLastContact({ id: client.id, date: e.target.value || null }))
+              }
+              className={cx(fieldClass, stale && "border-warn/40")}
+            />
+            <button
+              type="button"
+              onClick={() => run(() => setLastContact({ id: client.id, date: todayISO }))}
+              className="shrink-0 rounded border border-line px-1.5 py-1 text-[11px] text-ink-muted transition-colors hover:border-accent/40 hover:text-accent-bright"
+            >
+              Today
+            </button>
+          </div>
+        </label>
+
+        <label className="block text-[11px] text-ink-faint">
+          Go-live date
+          <input
+            type="date"
+            value={client.go_live_date ?? ""}
+            onChange={(e) =>
+              run(() => setGoLiveDate({ id: client.id, date: e.target.value || null }))
+            }
+            className={cx(fieldClass, "mt-0.5")}
+          />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-ink-faint">
+          Referral asked{" "}
+          {client.referral_asked_on ? (
+            <span className="tabular text-ink-muted">{formatDMY(client.referral_asked_on)}</span>
+          ) : (
+            <span className="text-warn">never</span>
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={() => run(() => markReferralAsked({ id: client.id }))}
+          className="rounded border border-line px-2 py-1 text-[11px] text-ink-muted transition-colors hover:border-accent/40 hover:text-accent-bright"
+        >
+          Asked today
+        </button>
+      </div>
+
+      <label
+        className={cx(
+          "flex cursor-pointer items-start gap-2 rounded border px-2 py-1.5 text-xs transition-colors",
+          client.billing_terms_confirmed
+            ? "border-good/30 bg-good/5"
+            : "border-bad/40 bg-bad/5"
+        )}
+      >
+        <input
+          type="checkbox"
+          checked={client.billing_terms_confirmed}
+          onChange={(e) =>
+            run(() => setBillingConfirmed({ id: client.id, confirmed: e.target.checked }))
+          }
+          className="mt-0.5 accent-[color:var(--color-good)]"
+        />
+        <span>
+          <span className={client.billing_terms_confirmed ? "text-good" : "text-bad"}>
+            Billing terms confirmed verbally
+          </span>
+          <span className="mt-0.5 block text-[11px] text-ink-faint">
+            Setup fee and monthly retainer both said out loud at onboarding, and repeated back.
+            {client.billing_terms_confirmed_on
+              ? ` Confirmed ${formatDMY(client.billing_terms_confirmed_on)}.`
+              : ""}
+          </span>
+        </span>
+      </label>
+    </section>
+  );
+}
+
 function ProjectPanel({
-  deal,
+  client,
   projects,
   todayISO,
   run,
 }: {
-  deal: Deal;
+  client: Client;
   projects: Project[];
   todayISO: string;
-  run: (action: () => Promise<{ ok: true } | { ok: false; error: string }>) => void;
+  run: Run;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -353,10 +608,12 @@ function ProjectPanel({
   const [target, setTarget] = useState("");
 
   return (
-    <div className="border-t border-line bg-surface-2/40 px-3 py-3 pl-9">
+    <div className="mt-4 border-t border-line pt-3">
+      <h4 className="mb-2 text-xs font-medium text-ink-muted">Builds</h4>
+
       {projects.length === 0 ? (
         <p className="text-xs text-ink-faint">
-          No projects yet. Fulfilment metrics for {deal.client_name} stay empty until one exists.
+          No builds yet. Fulfilment metrics for {client.client_name} stay empty until one exists.
         </p>
       ) : (
         <div className="space-y-1.5">
@@ -366,7 +623,8 @@ function ProjectPanel({
               project.completed_date === null &&
               project.target_date !== null &&
               project.target_date < todayISO;
-            const lateBy = overdue && project.target_date ? diffDays(project.target_date, todayISO) : null;
+            const lateBy =
+              overdue && project.target_date ? diffDays(project.target_date, todayISO) : null;
 
             return (
               <div
@@ -459,7 +717,7 @@ function ProjectPanel({
             e.preventDefault();
             run(async () => {
               const result = await addProject({
-                deal_id: deal.id,
+                deal_id: client.id,
                 project_name: name,
                 start_date: start,
                 target_date: target || null,
@@ -475,14 +733,14 @@ function ProjectPanel({
           className="mt-2 flex flex-wrap items-end gap-2 rounded border border-line bg-surface px-2.5 py-2"
         >
           <label className="flex-1 text-[11px] text-ink-faint">
-            Project name
+            Build name
             <input
               type="text"
               required
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="CRM Build & Pipeline Setup"
+              placeholder="Phase 2 — AI voice agent"
               className="mt-0.5 w-full rounded border border-line bg-surface-2 px-2 py-1 text-xs text-ink outline-none focus:border-accent"
             />
           </label>
@@ -525,7 +783,7 @@ function ProjectPanel({
           onClick={() => setAdding(true)}
           className="mt-2 rounded border border-line px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:border-accent/40 hover:text-accent-bright"
         >
-          + Add project
+          + Add build
         </button>
       )}
     </div>

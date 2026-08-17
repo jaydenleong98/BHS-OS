@@ -20,11 +20,17 @@ export function RangeSelector({
   range,
   previous,
   maxDate,
+  basePath = "/dashboard",
+  keep,
 }: {
   preset: RangePreset;
   range: DateRange;
   previous: DateRange;
   maxDate: string;
+  /** The page this row scopes. Dashboard and Analysis share it. */
+  basePath?: string;
+  /** Query params the page owns that a range change must not drop. */
+  keep?: Record<string, string | undefined>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -39,7 +45,10 @@ export function RangeSelector({
       params.set("from", customFrom ?? from);
       params.set("to", customTo ?? to);
     }
-    startTransition(() => router.push(`/dashboard?${params.toString()}`));
+    for (const [key, value] of Object.entries(keep ?? {})) {
+      if (value) params.set(key, value);
+    }
+    startTransition(() => router.push(`${basePath}?${params.toString()}`));
   }
 
   return (

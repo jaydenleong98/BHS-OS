@@ -76,6 +76,31 @@ export function startOfYear(iso: string): string {
   return iso.slice(0, 4) + "-01-01";
 }
 
+export function endOfYear(iso: string): string {
+  return iso.slice(0, 4) + "-12-31";
+}
+
+/**
+ * Whole weeks from one date to another, floored and never negative.
+ * A deadline four days out is "0 weeks left", which is the honest read.
+ */
+export function weeksUntil(fromISO: string, toISOStr: string): number {
+  return Math.max(0, Math.floor(diffDays(fromISO, toISOStr) / 7));
+}
+
+/** Every Monday from the week containing `from` to the week containing `to`. */
+export function eachWeek(fromISO: string, toISOStr: string): string[] {
+  const out: string[] = [];
+  let cursor = startOfWeek(fromISO);
+  const last = startOfWeek(toISOStr);
+  // Hard stop guards against an inverted range producing an unbounded loop.
+  while (cursor <= last && out.length < 520) {
+    out.push(cursor);
+    cursor = addDays(cursor, 7);
+  }
+  return out;
+}
+
 /** 'YYYY-MM' bucket key, used for every monthly rollup. */
 export function monthKey(iso: string): string {
   return iso.slice(0, 7);
@@ -137,6 +162,11 @@ export function formatMonthKey(key: string): string {
 export function formatMonthKeyShort(key: string): string {
   const [y, m] = key.split("-");
   return `${MONTH_NAMES[Number(m) - 1]} '${y.slice(2)}`;
+}
+
+/** "w/c 18/08" — a week identified by its Monday. */
+export function formatWeekOf(mondayISO: string): string {
+  return `w/c ${formatDM(mondayISO)}`;
 }
 
 // --- ranges ----------------------------------------------------------------

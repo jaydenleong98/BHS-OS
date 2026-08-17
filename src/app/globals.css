@@ -35,6 +35,10 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* Used in exactly one place: the MRR gap on the dashboard. In an all-sans,
+     high-density UI a serif at display size is unmissable, which is the point. */
+  --font-serif: ui-serif, Georgia, "Times New Roman", serif;
 }
 
 :root {

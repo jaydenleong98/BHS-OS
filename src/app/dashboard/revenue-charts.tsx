@@ -23,7 +23,7 @@ import {
   ROLLING_AVERAGE_COLOR,
 } from "@/lib/chart-theme";
 import { EmptyState } from "@/components/ui";
-import { ChartFrame, DataTable, Legend, TooltipCard } from "./chart-frame";
+import { ChartFrame, DataTable, Legend, TooltipCard } from "@/components/chart-frame";
 
 const BAR_CAP = 24;
 
