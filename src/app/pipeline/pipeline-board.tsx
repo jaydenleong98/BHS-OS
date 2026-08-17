@@ -59,6 +59,16 @@ export function PipelineBoard({
   const [losing, setLosing] = useState<Prospect | null>(null);
   const [showClosed, setShowClosed] = useState(false);
 
+  /**
+   * Drag state.
+   *
+   * Native HTML5 drag and drop, no library. It is a convenience layer only —
+   * the buttons on every card do the same job and stay the accessible path, so
+   * this works fine with a keyboard and on a phone, where dragging does not.
+   */
+  const [dragging, setDragging] = useState<Prospect | null>(null);
+  const [dropStage, setDropStage] = useState<OpenStage | null>(null);
+
   function run(action: () => Promise<Result>, onDone?: () => void) {
     setError(null);
     startTransition(async () => {
@@ -137,10 +147,36 @@ export function PipelineBoard({
           <div className="grid min-w-[900px] grid-cols-5 gap-2">
             {OPEN_STAGES.map((stage) => {
               const cards = byStage.get(stage) ?? [];
+              // Its own column is not a drop target — nothing would change.
+              const isTarget = dropStage === stage && dragging !== null && dragging.stage !== stage;
+
               return (
                 <section
                   key={stage}
-                  className="flex flex-col rounded-lg border border-line bg-surface"
+                  onDragOver={(e) => {
+                    if (!dragging || dragging.stage === stage) return;
+                    // preventDefault is what marks this as a valid drop target.
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDropStage(stage);
+                  }}
+                  onDragLeave={(e) => {
+                    // Ignore the events fired while crossing a child element.
+                    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                    setDropStage((current) => (current === stage ? null : current));
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const dropped = dragging;
+                    setDropStage(null);
+                    setDragging(null);
+                    if (!dropped || dropped.stage === stage) return;
+                    run(() => moveProspect({ id: dropped.id, stage }));
+                  }}
+                  className={cx(
+                    "flex flex-col rounded-lg border bg-surface transition-colors",
+                    isTarget ? "border-accent-bright bg-accent/5" : "border-line"
+                  )}
                 >
                   <header className="flex items-baseline justify-between gap-2 border-b border-line px-3 py-2">
                     <h2 className="text-xs font-semibold tracking-tight text-ink">
@@ -151,7 +187,14 @@ export function PipelineBoard({
 
                   <div className="flex flex-1 flex-col gap-2 p-2">
                     {cards.length === 0 ? (
-                      <p className="px-1 py-4 text-center text-[11px] text-ink-faint">Empty</p>
+                      <p
+                        className={cx(
+                          "px-1 py-4 text-center text-[11px] transition-colors",
+                          isTarget ? "text-accent-bright" : "text-ink-faint"
+                        )}
+                      >
+                        {isTarget ? `Move to ${STAGE_SHORT[stage]}` : "Empty"}
+                      </p>
                     ) : (
                       cards.map((prospect) => (
                         <ProspectCard
@@ -160,6 +203,12 @@ export function PipelineBoard({
                           clients={clients}
                           todayISO={todayISO}
                           expanded={editing === prospect.id}
+                          isDragging={dragging?.id === prospect.id}
+                          onDragStart={() => setDragging(prospect)}
+                          onDragEnd={() => {
+                            setDragging(null);
+                            setDropStage(null);
+                          }}
                           onToggle={() =>
                             setEditing((id) => (id === prospect.id ? null : prospect.id))
                           }
@@ -178,6 +227,13 @@ export function PipelineBoard({
                         />
                       ))
                     )}
+
+                    {/* A column with cards still needs somewhere to aim at. */}
+                    {isTarget && cards.length > 0 ? (
+                      <p className="rounded border border-dashed border-accent-bright/60 px-1 py-2 text-center text-[11px] text-accent-bright">
+                        Move to {STAGE_SHORT[stage]}
+                      </p>
+                    ) : null}
                   </div>
                 </section>
               );
@@ -290,6 +346,9 @@ function ProspectCard({
   clients,
   todayISO,
   expanded,
+  isDragging,
+  onDragStart,
+  onDragEnd,
   onToggle,
   onMove,
   onWin,
@@ -301,6 +360,9 @@ function ProspectCard({
   clients: Client[];
   todayISO: string;
   expanded: boolean;
+  isDragging: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
   onToggle: () => void;
   onMove: (stage: Stage) => void;
   onWin: () => void;
@@ -318,7 +380,23 @@ function ProspectCard({
     : null;
 
   return (
-    <article className="rounded-md border border-line bg-surface-2 p-2">
+    <article
+      // Not draggable while the edit panel is open: dragging would fight text
+      // selection in the fields inside it.
+      draggable={!expanded}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        // Firefox refuses to start a drag unless something is on the transfer.
+        e.dataTransfer.setData("text/plain", prospect.id);
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      className={cx(
+        "rounded-md border border-line bg-surface-2 p-2 transition-opacity",
+        !expanded && "cursor-grab active:cursor-grabbing",
+        isDragging && "opacity-40"
+      )}
+    >
       <div className="flex items-start gap-1">
         <button
           type="button"

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { addDays, formatDMY, formatDM } from "@/lib/dates";
+import { formatDMY, formatDM } from "@/lib/dates";
 import type { LoggedDay } from "@/lib/metrics";
 import type { AppSettings, DailyActivity } from "@/lib/types";
 import { Badge, Card, cx } from "@/components/ui";
@@ -92,8 +92,6 @@ export function EntryForm({
   loadError: string | null;
 }) {
   const router = useRouter();
-  const [navigating, startNavigation] = useTransition();
-
   const [draft, setDraft] = useState<Draft>(() => buildDraft(initialRow));
   const [note, setNote] = useState(initialRow?.note ?? "");
   const [saving, setSaving] = useState(false);
@@ -164,23 +162,15 @@ export function EntryForm({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  function goToDate(date: string) {
-    if (!date || date > maxDate) return;
-    startNavigation(() => router.push(`/entry?date=${date}`));
-  }
-
   const isToday = entryDate === maxDate;
 
   return (
     <div className="space-y-4">
-      <DateNav
-        entryDate={entryDate}
-        maxDate={maxDate}
-        isToday={isToday}
-        onGo={goToDate}
-      />
+      <p className="text-xs text-ink-faint">
+        {isToday ? "Today" : "Backfilling"} · {formatDMY(entryDate)}
+      </p>
 
-      <StreakStrip days={last7Days} streak={streak} selected={entryDate} onSelect={goToDate} />
+      <StreakStrip days={last7Days} streak={streak} selected={entryDate} />
 
       {loadError ? (
         <p role="alert" className="rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-xs text-bad">
@@ -189,9 +179,8 @@ export function EntryForm({
       ) : null}
 
       <Card
-        title="Today"
+        title={isToday ? "Today" : formatDMY(entryDate)}
         subtitle="Blank counts as zero. All zeros still counts as a logged day."
-        className={cx(navigating && "opacity-60 transition-opacity")}
         bodyClassName="p-0"
       >
         <div className="divide-y divide-line">
@@ -254,65 +243,6 @@ export function EntryForm({
   );
 }
 
-export function DateNav({
-  entryDate,
-  maxDate,
-  isToday,
-  onGo,
-  label = "Date",
-}: {
-  entryDate: string;
-  maxDate: string;
-  isToday: boolean;
-  onGo: (date: string) => void;
-  label?: string;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-xs text-ink-faint">
-        {isToday ? "Today" : "Backfilling"} · {formatDMY(entryDate)}
-      </p>
-
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => onGo(addDays(entryDate, -1))}
-          aria-label="Previous day"
-          className="rounded-md border border-line bg-surface px-2.5 py-2 text-sm text-ink-muted transition-colors hover:border-line-strong hover:text-ink"
-        >
-          ‹
-        </button>
-        <input
-          type="date"
-          value={entryDate}
-          max={maxDate}
-          onChange={(e) => onGo(e.target.value)}
-          aria-label={label}
-          className="tabular rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-accent"
-        />
-        <button
-          type="button"
-          onClick={() => onGo(addDays(entryDate, 1))}
-          disabled={!(entryDate < maxDate)}
-          aria-label="Next day"
-          className="rounded-md border border-line bg-surface px-2.5 py-2 text-sm text-ink-muted transition-colors hover:border-line-strong hover:text-ink disabled:opacity-30 disabled:hover:border-line"
-        >
-          ›
-        </button>
-        {!isToday ? (
-          <button
-            type="button"
-            onClick={() => onGo(maxDate)}
-            className="ml-1 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-muted transition-colors hover:border-line-strong hover:text-ink"
-          >
-            Today
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 export function SaveBar({
   saving,
   dirty,
@@ -356,17 +286,20 @@ export function SaveBar({
   );
 }
 
-/** Seven boxes. Gaps are the whole point — they should be obvious at a glance. */
+/**
+ * Seven boxes. Gaps are the whole point — they should be obvious at a glance.
+ *
+ * Read-only: this page logs today and nothing else, so the boxes report history
+ * rather than offering to navigate into it.
+ */
 function StreakStrip({
   days,
   streak,
   selected,
-  onSelect,
 }: {
   days: LoggedDay[];
   streak: number;
   selected: string;
-  onSelect: (date: string) => void;
 }) {
   const missed = days.filter((d) => !d.logged).length;
 
@@ -374,21 +307,19 @@ function StreakStrip({
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2.5">
       <div className="flex items-center gap-1.5">
         {days.map((day) => (
-          <button
+          <span
             key={day.date}
-            type="button"
-            onClick={() => onSelect(day.date)}
             title={`${formatDMY(day.date)} — ${day.logged ? "logged" : "not logged"}`}
             className={cx(
-              "tabular w-11 rounded border px-1 py-1.5 text-center text-[10px] transition-colors",
+              "tabular w-11 rounded border px-1 py-1.5 text-center text-[10px]",
               day.logged
-                ? "border-accent/40 bg-accent/15 text-accent-bright hover:bg-accent/25"
-                : "border-dashed border-line-strong bg-transparent text-ink-faint hover:border-warn/50 hover:text-warn",
+                ? "border-accent/40 bg-accent/15 text-accent-bright"
+                : "border-dashed border-line-strong bg-transparent text-ink-faint",
               day.date === selected && "ring-1 ring-accent-bright"
             )}
           >
             {formatDM(day.date)}
-          </button>
+          </span>
         ))}
       </div>
 

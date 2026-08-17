@@ -32,7 +32,8 @@ export default async function PipelinePage() {
       <div>
         <h1 className="text-lg font-semibold tracking-tight">Pipeline</h1>
         <p className="mt-0.5 text-xs text-ink-faint">
-          One record per prospect, moved by hand through the stages. Average cycle to won:{" "}
+          One record per prospect. Drag a card between columns, or use the button on its face.
+          Average cycle to won:{" "}
           <span className="tabular text-ink-muted">{formatDays(cycle, 0)}</span>. Stage weights on
           the pipeline value are a stated assumption, not a measurement.
         </p>
