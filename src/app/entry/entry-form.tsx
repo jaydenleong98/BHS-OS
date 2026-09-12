@@ -2,59 +2,52 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatDMY, formatDM } from "@/lib/dates";
-import type { LoggedDay } from "@/lib/metrics";
-import type { AppSettings, DailyActivity } from "@/lib/types";
-import { Badge, Card, cx } from "@/components/ui";
+import { formatDMY } from "@/lib/dates";
+import type { DailyActivity } from "@/lib/types";
+import { Card } from "@/components/ui";
 import { saveDailyEntry } from "./actions";
 
 /**
- * The whole of my daily typing surface: four counts, one optional note, one save.
+ * The whole daily typing surface: four counts, one optional note, one save.
  *
  * There is no summary, no rate and no total on this page by design. Entry and
- * review are different jobs, and mixing them is what turned the old version into
- * a twenty-eight-cell grid nobody wanted to open.
+ * review are different jobs — review lives on the Dashboard.
  */
 
 type Field = {
   key: keyof Draft;
   label: string;
   definition: string;
-  target: (s: AppSettings) => number | null;
 };
 
 const FIELDS: Field[] = [
   {
     key: "outreach",
     label: "Outreach",
-    definition: "Deliberate contact with a named person who could buy or refer.",
-    target: (s) => s.outreach_target_per_day,
+    definition: "New, cold contact with a named prospect.",
   },
   {
-    key: "conversations",
-    label: "Conversations started",
-    definition: "A two-way exchange. A sent message on its own is not one.",
-    target: (s) => s.conversations_target_per_day,
+    key: "followUp",
+    label: "Follow-up",
+    definition: "A touch on a prospect already in conversation.",
   },
   {
-    key: "salesCalls",
-    label: "Sales calls taken",
-    definition: "Actual calls that happened. No target — log the number.",
-    target: () => null,
+    key: "meetingsBooked",
+    label: "Meetings booked",
+    definition: "A call or meeting confirmed on the calendar today.",
   },
   {
-    key: "deepWork",
-    label: "Deep work blocks",
-    definition: "Uninterrupted blocks on building, not admin.",
-    target: (s) => s.deep_work_target_per_day,
+    key: "meetingsAttended",
+    label: "Meetings attended",
+    definition: "A call or meeting that actually happened today.",
   },
 ];
 
 type Draft = {
   outreach: string;
-  conversations: string;
-  salesCalls: string;
-  deepWork: string;
+  followUp: string;
+  meetingsBooked: string;
+  meetingsAttended: string;
 };
 
 /** Blank means zero, so a zero from the database is rendered blank. */
@@ -68,9 +61,9 @@ const toNumber = (value: string): number => {
 function buildDraft(row: DailyActivity | null): Draft {
   return {
     outreach: show(row?.outreach ?? 0),
-    conversations: show(row?.conversations ?? 0),
-    salesCalls: show(row?.sales_calls ?? 0),
-    deepWork: show(row?.deep_work_blocks ?? 0),
+    followUp: show(row?.follow_up ?? 0),
+    meetingsBooked: show(row?.meetings_booked ?? 0),
+    meetingsAttended: show(row?.meetings_attended ?? 0),
   };
 }
 
@@ -78,17 +71,11 @@ export function EntryForm({
   entryDate,
   maxDate,
   initialRow,
-  settings,
-  last7Days,
-  streak,
   loadError,
 }: {
   entryDate: string;
   maxDate: string;
   initialRow: DailyActivity | null;
-  settings: AppSettings;
-  last7Days: LoggedDay[];
-  streak: number;
   loadError: string | null;
 }) {
   const router = useRouter();
@@ -121,9 +108,9 @@ export function EntryForm({
     const result = await saveDailyEntry({
       entry_date: entryDate,
       outreach: toNumber(draft.outreach),
-      conversations: toNumber(draft.conversations),
-      sales_calls: toNumber(draft.salesCalls),
-      deep_work_blocks: toNumber(draft.deepWork),
+      follow_up: toNumber(draft.followUp),
+      meetings_booked: toNumber(draft.meetingsBooked),
+      meetings_attended: toNumber(draft.meetingsAttended),
       note,
     });
     setSaving(false);
@@ -170,8 +157,6 @@ export function EntryForm({
         {isToday ? "Today" : "Backfilling"} · {formatDMY(entryDate)}
       </p>
 
-      <StreakStrip days={last7Days} streak={streak} selected={entryDate} />
-
       {loadError ? (
         <p role="alert" className="rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-xs text-bad">
           Could not load this day: {loadError}
@@ -184,38 +169,28 @@ export function EntryForm({
         bodyClassName="p-0"
       >
         <div className="divide-y divide-line">
-          {FIELDS.map((field) => {
-            const target = field.target(settings);
-            return (
-              <label
-                key={field.key}
-                className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-surface-2/40"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-sm font-medium text-ink">{field.label}</span>
-                    {target === null ? (
-                      <span className="text-[11px] text-ink-faint">no target</span>
-                    ) : (
-                      <span className="tabular text-[11px] text-ink-faint">target {target}/day</span>
-                    )}
-                  </span>
-                  <span className="mt-0.5 block text-xs text-ink-faint">{field.definition}</span>
-                </span>
+          {FIELDS.map((field) => (
+            <label
+              key={field.key}
+              className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-surface-2/40"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="text-sm font-medium text-ink">{field.label}</span>
+                <span className="mt-0.5 block text-xs text-ink-faint">{field.definition}</span>
+              </span>
 
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={draft[field.key]}
-                  onChange={(e) => setField(field.key, e.target.value)}
-                  onFocus={(e) => e.target.select()}
-                  placeholder="0"
-                  aria-label={field.label}
-                  className="tabular w-24 shrink-0 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-right text-lg outline-none transition-colors placeholder:text-ink-faint/40 focus:border-accent focus:bg-surface-3"
-                />
-              </label>
-            );
-          })}
+              <input
+                type="text"
+                inputMode="numeric"
+                value={draft[field.key]}
+                onChange={(e) => setField(field.key, e.target.value)}
+                onFocus={(e) => e.target.select()}
+                placeholder="0"
+                aria-label={field.label}
+                className="tabular w-24 shrink-0 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-right text-lg outline-none transition-colors placeholder:text-ink-faint/40 focus:border-accent focus:bg-surface-3"
+              />
+            </label>
+          ))}
         </div>
       </Card>
 
@@ -227,7 +202,7 @@ export function EntryForm({
             setSavedAt(null);
           }}
           rows={2}
-          placeholder="Public holiday, all day in delivery, XHS post took off…"
+          placeholder="Public holiday, chasing a proposal, good call with a new lead…"
           className="w-full resize-y rounded-md border border-line bg-surface-2 px-3 py-2 text-sm outline-none transition-colors placeholder:text-ink-faint/60 focus:border-accent focus:bg-surface-3"
         />
       </Card>
@@ -281,57 +256,6 @@ export function SaveBar({
         <kbd className="ml-auto hidden rounded border border-line px-1.5 py-0.5 text-[10px] text-ink-faint sm:inline">
           Ctrl+S
         </kbd>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Seven boxes. Gaps are the whole point — they should be obvious at a glance.
- *
- * Read-only: this page logs today and nothing else, so the boxes report history
- * rather than offering to navigate into it.
- */
-function StreakStrip({
-  days,
-  streak,
-  selected,
-}: {
-  days: LoggedDay[];
-  streak: number;
-  selected: string;
-}) {
-  const missed = days.filter((d) => !d.logged).length;
-
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2.5">
-      <div className="flex items-center gap-1.5">
-        {days.map((day) => (
-          <span
-            key={day.date}
-            title={`${formatDMY(day.date)} — ${day.logged ? "logged" : "not logged"}`}
-            className={cx(
-              "tabular w-11 rounded border px-1 py-1.5 text-center text-[10px]",
-              day.logged
-                ? "border-accent/40 bg-accent/15 text-accent-bright"
-                : "border-dashed border-line-strong bg-transparent text-ink-faint",
-              day.date === selected && "ring-1 ring-accent-bright"
-            )}
-          >
-            {formatDM(day.date)}
-          </span>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-ink-muted">
-          <span className="tabular font-semibold text-ink">{streak}</span> day streak
-        </span>
-        {missed > 0 ? (
-          <Badge tone="warn">{missed} of last 7 not logged</Badge>
-        ) : (
-          <Badge tone="good">Last 7 days complete</Badge>
-        )}
       </div>
     </div>
   );
